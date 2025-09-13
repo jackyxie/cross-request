@@ -7,6 +7,8 @@
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 ![Version](https://img.shields.io/badge/Version-3.2-red)
 
+> 原作者不再维护扩展程序，现采用Ai重新适配改写兼容新版chrome。
+
 一个强大的跨域请求 Chrome 扩展，专为 YApi、Postman 等接口测试工具设计。
 
 [安装指南](#安装方法) • [使用文档](#使用方法) • [API 参考](#api-参数说明) • [故障排除](#故障排除) • [开发指南](#开发说明)
@@ -30,7 +32,7 @@
 
 ```bash
 # 1. 下载或克隆项目
-git clone https://github.com/your-repo/cross-request.git
+git clone https://github.com/jackyxie/cross-request.git
 cd cross-request
 
 # 2. 打开 Chrome 扩展页面
@@ -842,8 +844,8 @@ crossRequest({
 
 ## 🔗 相关链接
 
-- **GitHub 仓库**: [项目地址](https://github.com/ymfe/yapi)
-- **问题反馈**: [Issues 页面](https://github.com/ymfe/yapi)
+- **GitHub 仓库**: [https://github.com/jackyxie/cross-request](https://github.com/jackyxie/cross-request)
+- **问题反馈**: [https://github.com/jackyxie/cross-request/issues](https://github.com/jackyxie/cross-request/issues)
 - **YApi 官网**: [https://hellosean1025.github.io/yapi/](https://hellosean1025.github.io/yapi/)
 
 ## 📄 许可证
