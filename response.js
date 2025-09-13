@@ -38,7 +38,7 @@ function _base64() {
 
     var TABLE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
     // http://whatwg.org/html/common-microsyntaxes.html#space-character
-    var REGEX_SPACE_CHARACTERS = /<%= spaceCharacters %>/g;
+    var REGEX_SPACE_CHARACTERS = /[\t\n\f\r ]/g;
 
     // `decode` is designed to be fully compatible with `atob` as described in the
     // HTML Standard. http://whatwg.org/html/webappapis.html#dom-windowbase64-atob
@@ -170,12 +170,107 @@ var unsafeHeader = [ 'Accept-Charset',
 'User-Agent',
 'Via' ];
 /*==============common end=================*/
-var connect = chrome.runtime.connect({ name: "request" });
+var connect;
+var isConnected = false;
+var reconnectAttempts = 0;
+var maxReconnectAttempts = 5;
+var reconnectDelay = 1000;
+
+function createConnection() {
+    try {
+        // 检查扩展是否仍然可用
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.connect) {
+            console.warn('Chrome 扩展 API 不可用');
+            isConnected = false;
+            return;
+        }
+
+        connect = chrome.runtime.connect({ name: "request" });
+        isConnected = true;
+        reconnectAttempts = 0;
+        
+        connect.onDisconnect.addListener(function() {
+            var lastError = chrome.runtime.lastError;
+            if (lastError) {
+                console.log('扩展连接断开，原因:', lastError.message);
+            } else {
+                console.log('扩展连接已断开，尝试重新连接...');
+            }
+            
+            isConnected = false;
+            
+            // 检查是否是扩展上下文失效
+            if (lastError && lastError.message.includes('Extension context invalidated')) {
+                console.warn('扩展上下文已失效，停止重连尝试');
+                return;
+            }
+            
+            // 限制重连次数
+            if (reconnectAttempts < maxReconnectAttempts) {
+                reconnectAttempts++;
+                var delay = reconnectDelay * reconnectAttempts;
+                console.log(`第 ${reconnectAttempts} 次重连尝试，${delay}ms 后重试...`);
+                setTimeout(createConnection, delay);
+            } else {
+                console.error('达到最大重连次数，停止重连');
+            }
+        });
+        
+        connect.onMessage.addListener(function (msg) {
+            var id = msg.id;
+            var res = msg.res;
+            if (successFns[id] && errorFns[id]) {
+                try {
+                    res.status === 200 ?
+                        successFns[id](res) :
+                        errorFns[id](res);
+                } catch (callbackError) {
+                    console.error('回调函数执行错误:', callbackError);
+                } finally {
+                    delete successFns[id];
+                    delete errorFns[id];
+                }
+            }
+        });
+        
+        console.log('扩展连接已建立');
+    } catch (error) {
+        console.error('创建扩展连接失败:', error);
+        isConnected = false;
+        
+        // 如果是扩展上下文失效，不要重试
+        if (error.message && error.message.includes('Extension context invalidated')) {
+            console.warn('扩展上下文已失效，停止重连尝试');
+            return;
+        }
+        
+        // 重试连接
+        if (reconnectAttempts < maxReconnectAttempts) {
+            reconnectAttempts++;
+            setTimeout(createConnection, reconnectDelay * reconnectAttempts);
+        }
+    }
+}
+
+// 初始化连接
+createConnection();
+
+// 页面卸载时清理连接
+window.addEventListener('beforeunload', function() {
+    if (connect && isConnected) {
+        try {
+            connect.disconnect();
+        } catch (e) {
+            // 忽略断开连接时的错误
+        }
+    }
+    isConnected = false;
+});
 
 function injectJs(path) {
     var s = document.createElement('script');
     // TODO: add "script.js" to web_accessible_resources in manifest.json
-    s.src = chrome.extension.getURL(path);
+    s.src = chrome.runtime.getURL(path);
     s.onload = function () {
         this.remove();
     };
@@ -342,21 +437,52 @@ function sendAjaxByContent(req, successFn, errorFn) {
 function sendAjaxByBack(id, req, successFn, errorFn) {
     successFns[id] = successFn;
     errorFns[id] = errorFn;
-    connect.postMessage({
-        id: id,
-        req: req
-    });
+    
+    // 检查扩展上下文是否有效
+    if (typeof chrome === 'undefined' || !chrome.runtime) {
+        console.warn('扩展上下文不可用，使用 content script 直接发送请求');
+        sendAjaxByContent(req, successFn, errorFn);
+        delete successFns[id];
+        delete errorFns[id];
+        return;
+    }
+    
+    if (!isConnected || !connect) {
+        console.log('连接未就绪，使用 content script 发送请求');
+        sendAjaxByContent(req, successFn, errorFn);
+        delete successFns[id];
+        delete errorFns[id];
+        return;
+    }
+    
+    try {
+        connect.postMessage({
+            id: id,
+            req: req
+        });
+    } catch (error) {
+        console.error('发送消息失败:', error);
+        
+        // 清理回调函数
+        delete successFns[id];
+        delete errorFns[id];
+        
+        // 检查是否是扩展上下文失效
+        if (error.message && error.message.includes('Extension context invalidated')) {
+            console.warn('扩展上下文已失效，使用 content script 发送请求');
+            isConnected = false;
+        } else {
+            // 其他错误，尝试重新连接
+            isConnected = false;
+            createConnection();
+        }
+        
+        // 使用 content script 直接发送请求作为后备
+        sendAjaxByContent(req, successFn, errorFn);
+    }
 }
 
-connect.onMessage.addListener(function (msg) {
-    var id = msg.id;
-    var res = msg.res;
-    res.status === 200 ?
-        successFns[id](res) :
-        errorFns[id](res);
-    delete successFns[id];
-    delete errorFns[id];
-});
+// 消息监听器已移至 createConnection 函数中
 
 function checkFileRequest(req) {
     if (req.files && typeof req.files === 'object' && Object.keys(req.files).length > 0) {

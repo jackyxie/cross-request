@@ -10,7 +10,7 @@ function generateHtml(url) {
 
 var key = 'y_request_allow_urls';
 
-var urls = chrome.runtime.sendMessage({action:'get', name: key}, function(urls){
+chrome.runtime.sendMessage({action:'get', name: key}, function(urls){
   var urlDom = $('#urls');
   try{
     urls = JSON.parse(urls);
